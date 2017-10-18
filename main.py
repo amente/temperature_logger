@@ -1,11 +1,11 @@
-from w1thermsensor import W1ThermSensor
+from w1thermsensor import W1ThermSensor, SensorNotReadyError
 from flask import Flask, render_template, send_file, jsonify
 import datetime
 import thread
 import time
 
 LOGGING_INTERVAL_SEC = 5
-LOG_FILE_NAME = "temp_data.csv"
+LOG_FILE_NAME = "temperature_data.csv"
 
 app = Flask(__name__)
 logging_is_enabled = True
@@ -31,6 +31,7 @@ def get_logged_sensor_data():
     return sensor_data
 
 write_data_csv_header()
+recent_temp_data = {}
 def data_logger_thread():
     while True:
         if logging_is_enabled:
@@ -38,8 +39,16 @@ def data_logger_thread():
             timestamp = datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
             sensor_data = []
             for sensor in sensors:
-                temperature = sensor.get_temperature()
-                sensor_data.append((sensor.id, temperature))
+                try:
+                    temperature = sensor.get_temperature()
+                    sensor_data.append((sensor.id, temperature))
+                    recent_temp_data[sensor.id] = {
+                            "timestamp": timestamp,
+                            "temperature": temperature
+                        }
+                except SensorNotReadyError:
+                    print "Sensor " + str(sensor.id) + " is not ready\n"
+
             with open(LOG_FILE_NAME, 'a') as f:
                 for data in sensor_data:
                     f.write('{ts},{id},{temp}\n'.format(ts=timestamp, id=data[0], temp=data[1]))
@@ -51,6 +60,10 @@ def index():
     return render_template('index.html')
 
 @app.route('/data')
+def get_data():
+    return jsonify(recent_temp_data)
+
+@app.route('/data_csv')
 def get_data_csv():
     return send_file(LOG_FILE_NAME,
                      mimetype='text/csv',
